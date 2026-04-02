@@ -1,11 +1,23 @@
 ---
 name: skill-publish-to-market
-description: "Publish any SKILL.md to 4 skill markets (ClawHub, Anthropic Skills, ECC Community, skills.sh) with one command. Collects tokens, validates quality, creates PRs, handles version conflicts, and reports results. Use when: '发布技能', '上传到GitHub', 'push to ClawHub', '批量发布', 'submit skill PR'. Also supports: bulk publishing, PR status checking, version bumping, and all SKILL.md-compatible platforms."
-version: "2.0.0"
-changelog: |
-  2.0.0 — Quality Gate pre-check, platform adaptation, degraded publishing, follow-up loop, anti-truncation batch strategy
-  1.0.0 — Initial release with 4-platform curl publishing
-compatibility: "Claude Code, OpenClaw, Codex, QClaw, ArkClaw, and all SKILL.md-compatible agents"
+description: >-
+  Publish any SKILL.md to 4 skill markets (ClawHub, Anthropic Skills, ECC Community, skills.sh) with one command.
+  Collects tokens, validates quality, creates PRs, handles version conflicts, and reports results. Use when: '发布技能',
+  '上传到GitHub', 'push to ClawHub', '批量发布', 'submit skill PR'. Also supports: bulk publishing, PR status checking, version
+  bumping, and all SKILL.md-compatible platforms.
+version: 2.0.0
+author: dingtom336-gif
+homepage: ''
+license: MIT
+compatibility: Claude Code, OpenClaw, Codex, QClaw, ArkClaw, and all SKILL.md-compatible agents
+tags:
+  - skill-publishing
+  - multi-platform
+  - automation
+  - cli-tool
+  - developer-tools
+  - version-management
+allowedTools: []
 ---
 
 # CRITICAL EXECUTION RULES
@@ -56,8 +68,6 @@ No additional installation needed. This skill uses `curl` to call REST APIs dire
 
 The agent must collect these credentials before publishing. Ask the user if not provided.
 
-> **Security:** Tokens are used for the current session only. NEVER log, store, or display full tokens. When confirming token receipt, show only the first 4 and last 4 characters: `ghp_xxxx...xxxx`. NEVER include tokens in output, reports, or error messages.
-
 | Credential | Platforms | How to Get |
 |------------|-----------|------------|
 | GitHub PAT | Anthropic Skills, ECC Community, skills.sh | github.com/settings/tokens/new -> select `repo` + `workflow` scopes |
@@ -93,21 +103,10 @@ The agent must collect these credentials before publishing. Ask the user if not 
 
 ### Step 0: Environment Check
 
-Verify all required CLI tools are available. This skill depends on Unix/Linux commands.
-
 ```bash
-# Required tools (all pre-installed on macOS/Linux)
+# Verify curl is available
 curl --version > /dev/null 2>&1 || echo "ERROR: curl not found"
-base64 --version > /dev/null 2>&1 || echo "base64" | base64 > /dev/null 2>&1 || echo "ERROR: base64 not found"
-find --version > /dev/null 2>&1 || find . -maxdepth 0 > /dev/null 2>&1 || echo "ERROR: find not found"
-grep --version > /dev/null 2>&1 || echo "ERROR: grep not found"
-sed --version > /dev/null 2>&1 || echo "" | sed '' > /dev/null 2>&1 || echo "ERROR: sed not found"
 ```
-
-- All pass -> proceed to Step 1
-- Any missing -> STOP. Report which tools are missing and suggest installation.
-
-> **Windows users:** This skill requires a Unix-like environment. Use WSL (Windows Subsystem for Linux) or Git Bash.
 
 ### Step 1: Collect & Verify Credentials
 
@@ -160,11 +159,36 @@ Show warnings but do NOT block publishing.
 
 **Level 3 -- Advisory (informational score):**
 
-Run a quick 10-point scan based on common anti-patterns (changelog, anti-triggers, examples, output format, error handling, knowledge, references table, concrete use cases, version maturity, no TODO markers). Each item = 10 points.
+Run a quick 10-point scan based on common anti-patterns:
+1. Frontmatter has changelog field
+2. Anti-triggers are defined (prevents false activation)
+3. Usage examples are included
+4. Output format is specified
+5. Error handling section exists
+6. Domain knowledge section exists
+7. References table is present
+8. Description mentions concrete use cases
+9. Version is above 0.x (indicates maturity)
+10. No TODO/FIXME/HACK markers remain in SKILL.md
 
-> Full output format and detailed checklist: see [references/templates.md](references/templates.md) → "Quality Gate Templates"
+Each item = 10 points. Total = sum of passing items.
 
-If Level 1 = FAIL, do not ask -- just stop and show what needs fixing. If Level 1 = PASS, show results and ask user to proceed or fix first.
+**Output format:**
+
+```
+Quality Gate Results:
+  Level 1 (Required):  PASS / FAIL
+  Level 2 (Warnings):  N warnings (details listed below)
+  Level 3 (Advisory):  Score: XX/100
+
+Level 2 warnings:
+  - missing references/ directory
+  - description is only 12 words (recommend 20+)
+
+Proceed with publishing? (yes / fix first)
+```
+
+If Level 1 = FAIL, do not ask -- just stop and show what needs fixing.
 
 ### Step 3: Read Skill Files & Adapt for Each Platform
 
@@ -178,7 +202,7 @@ SKILL_NAME=$(echo "$SKILL_MD" | grep -m1 '^name:' | sed 's/name: *//;s/"//g')
 SKILL_VERSION=$(echo "$SKILL_MD" | grep -m1 '^version:' | sed 's/version: *//;s/"//g')
 
 # Find all files to publish
-find "$SKILL_DIR" -maxdepth 2 -type f -name "*.md" -not -path "*/node_modules/*" -not -path "*/.git/*" | sort
+find "$SKILL_DIR" -type f -name "*.md" | sort
 ```
 
 **Platform adaptation -- before publishing to each platform, adapt the payload:**
@@ -196,27 +220,74 @@ Execute in reliability order. Each platform is independent -- one failure does n
 
 #### 4a. ClawHub (HTTP API -- fastest, most reliable)
 
-Publish via multipart FormData POST. Dynamically discover all `.md` files in the skill directory.
+```bash
+# Build multipart form data
+curl -X POST "https://clawhub.ai/api/v1/skills" \
+  -H "Authorization: Bearer {CLAWHUB_TOKEN}" \
+  -H "Accept: application/json" \
+  -F "payload={\"slug\":\"{SLUG_PREFIX}{SKILL_NAME}\",\"displayName\":\"{DISPLAY_NAME}\",\"version\":\"{VERSION}\",\"changelog\":\"\",\"acceptLicenseTerms\":true,\"tags\":[\"latest\"]}" \
+  -F "files=@{SKILL_DIR}/SKILL.md;filename=SKILL.md" \
+  -F "files=@{SKILL_DIR}/references/templates.md;filename=references/templates.md" \
+  -F "files=@{SKILL_DIR}/references/playbooks.md;filename=references/playbooks.md" \
+  -F "files=@{SKILL_DIR}/references/fallbacks.md;filename=references/fallbacks.md" \
+  -F "files=@{SKILL_DIR}/references/runbook.md;filename=references/runbook.md"
+```
 
-> Full curl template: see [references/templates.md](references/templates.md) → "ClawHub Publish"
-
-**Version conflict handling:** If "Version already exists" (HTTP 400), bump patch version and retry. Max 5 retries.
+**Version conflict handling:** If response contains "Version already exists", bump patch version (1.0.0 -> 1.0.1) and retry up to 3 times.
 
 #### 4b. skills.sh (GitHub File Upload)
 
-Upload discovered files to `skills-sh/registry` repo. File path prefix: `{SKILL_NAME}/`.
-
-> Full curl template: see [references/templates.md](references/templates.md) → "GitHub PR"
+Target repo configured by user or default `skills-sh/registry`, upload SKILL.md with subdirectory prefix `{SKILL_NAME}/`.
 
 #### 4c. Anthropic Skills (GitHub PR)
 
-Fork + branch + upload files + create PR against `anthropics/skills`. File path: `skills/{SKILL_NAME}/`.
+Target repo: `anthropics/skills`
 
-> Full curl template: see [references/templates.md](references/templates.md) → "GitHub PR" section. Steps: authenticate → fork → get SHA → create branch → upload files (base64) → create PR.
+```bash
+# 1. Get authenticated user
+GH_USER=$(curl -s -H "Authorization: Bearer {GITHUB_TOKEN}" \
+  https://api.github.com/user | grep -o '"login":"[^"]*"' | cut -d'"' -f4)
+
+# 2. Fork the repo (idempotent)
+curl -s -X POST -H "Authorization: Bearer {GITHUB_TOKEN}" \
+  -H "Accept: application/vnd.github+json" \
+  https://api.github.com/repos/anthropics/skills/forks
+sleep 3
+
+# 3. Get default branch SHA
+BASE_SHA=$(curl -s -H "Authorization: Bearer {GITHUB_TOKEN}" \
+  https://api.github.com/repos/$GH_USER/skills/git/ref/heads/main \
+  | grep -o '"sha":"[^"]*"' | head -1 | cut -d'"' -f4)
+
+# 4. Create branch
+BRANCH="add-skill-{SKILL_NAME}-$(date +%s)"
+curl -s -X POST -H "Authorization: Bearer {GITHUB_TOKEN}" \
+  -H "Accept: application/vnd.github+json" \
+  https://api.github.com/repos/$GH_USER/skills/git/refs \
+  -d "{\"ref\":\"refs/heads/$BRANCH\",\"sha\":\"$BASE_SHA\"}"
+
+# 5. Upload each file (base64 encoded)
+for FILE in SKILL.md references/templates.md references/playbooks.md references/fallbacks.md references/runbook.md; do
+  if [ -f "$SKILL_DIR/$FILE" ]; then
+    CONTENT=$(base64 < "$SKILL_DIR/$FILE")
+    FILEPATH="skills/{SKILL_NAME}/$FILE"
+    curl -s -X PUT -H "Authorization: Bearer {GITHUB_TOKEN}" \
+      -H "Accept: application/vnd.github+json" \
+      "https://api.github.com/repos/$GH_USER/skills/contents/$FILEPATH" \
+      -d "{\"message\":\"Add $FILE for skill: {SKILL_NAME}\",\"content\":\"$CONTENT\",\"branch\":\"$BRANCH\"}"
+  fi
+done
+
+# 6. Create PR
+curl -s -X POST -H "Authorization: Bearer {GITHUB_TOKEN}" \
+  -H "Accept: application/vnd.github+json" \
+  https://api.github.com/repos/anthropics/skills/pulls \
+  -d "{\"title\":\"Add skill: {SKILL_NAME}\",\"head\":\"$GH_USER:$BRANCH\",\"base\":\"main\",\"body\":\"Adding skill **{SKILL_NAME}** v{VERSION} via skill-publish-to-market.\n\nDescription: {DESCRIPTION}\n\nFiles included: SKILL.md + references/\"}"
+```
 
 #### 4d. ECC Community (GitHub PR)
 
-Same workflow as 4c. Target repo: `affaan-m/everything-claude-code`. File path: `skills/{SKILL_NAME}/`.
+Same as 4c but target repo: `affaan-m/everything-claude-code`, path prefix: `skills/{SKILL_NAME}/`
 
 PR body format:
 ```
